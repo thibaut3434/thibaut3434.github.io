@@ -1,0 +1,541 @@
+<!doctype html>
+<!--
+  ============================================================
+   INFO-BORD - pixelstijl, de tekst wordt letter per letter getypt
+  ============================================================
+   Gebruiken:
+   - online als link (bv. GitHub Pages) -> TikTok LIVE Studio: Bron toevoegen -> Link
+   - in OBS: Bron + -> Browser -> Lokaal bestand
+   Beste grootte staat onderaan als je het bestand op je pc opent.
+
+   Nieuwe join code of andere tekst? Verander het stuk INSTELLINGEN.
+  ============================================================
+-->
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Info Pixel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  #scherm { display: block; image-rendering: pixelated; }
+
+  /* alleen als je het bestand op je eigen pc opent: ruitjes = doorzichtig */
+  body.voorbeeld {
+    min-height: 100vh; height: auto;
+    flex-direction: column; gap: 16px;
+    background: repeating-conic-gradient(#d9d9d9 0 25%, #f2f2f2 0 50%) 0 0 / 20px 20px;
+    font: 14px/1.4 system-ui, sans-serif;
+    color: #333;
+  }
+  body.voorbeeld #scherm { max-width: calc(100vw - 32px); height: auto; }
+  #info { display: none; background: #fff; padding: 6px 12px; border-radius: 6px; }
+  body.voorbeeld #info { display: block; }
+</style>
+</head>
+<body>
+<canvas id="scherm"></canvas>
+<div id="info"></div>
+
+<script>
+/* ============================================================
+   INSTELLINGEN  -  hier mag je alles veranderen!
+   ============================================================ */
+const REGEL      = "Niet stream snipen!";
+const JOIN_CODE  = "pk40iwc8";
+const DISCORD    = "discord.gg/dFsX2Vfv2d";
+const TAB        = "INFO";      // woordje op het tabje bovenaan
+const LEESTIJD   = 14;          // seconden dat alles stil blijft staan voor het opnieuw getypt wordt
+const KAT        = true;        // het katje van Thipje erbij (false = geen katje)
+const LETTERTYPE = "thipje";    // "thipje" = je eigen lettertype, "arcade" = het oude (Press Start 2P)
+
+/* ============================================================
+   Vanaf hier hoef je niets te veranderen
+   ============================================================ */
+const TPS = 12;   // animatie-stappen per seconde
+const NIEUW = LETTERTYPE !== "arcade";
+const SCHAAL = NIEUW ? 6 : 5;   // 1 game-pixel = zoveel echte pixels
+
+// PICO-8 kleurenpalet
+const KLEUR = {
+  zwart: "#000000", donkerblauw: "#1D2B53", donkerpaars: "#7E2553",
+  donkergrijs: "#5F574F", lichtgrijs: "#C2C3C7", wit: "#FFF1E8",
+  rood: "#FF004D", oranje: "#FFA300", geel: "#FFEC27",
+  blauw: "#29ADFF", lavendel: "#83769C", roze: "#FF77A8", bruin: "#AB5236"
+};
+// eigen lettertype: bovenkant licht, onderkant donkerder (zoals titels in oude games)
+const TWEEKLEUR = {
+  wit: [KLEUR.wit, KLEUR.lichtgrijs],
+  geel: [KLEUR.geel, KLEUR.oranje],
+  blauw: [KLEUR.blauw, KLEUR.lavendel],
+  rood: [KLEUR.roze, KLEUR.rood]
+};
+
+/* ============================================================
+   THIPJE-FONT - een zelfgemaakt pixel-lettertype
+   # = pixel aan, . = uit. Hoofdletters zijn 7 hoog,
+   kleine letters beginnen 2 rijen lager, staartjes (g, j, p, q, y) gaan 2 rijen onder de lijn.
+   ============================================================ */
+const THIPJE_FONT = {
+  "A": [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+  "B": ["####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."],
+  "C": [".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."],
+  "D": ["####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."],
+  "E": ["#####", "#....", "#....", "####.", "#....", "#....", "#####"],
+  "F": ["#####", "#....", "#....", "####.", "#....", "#....", "#...."],
+  "G": [".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".###."],
+  "H": ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+  "I": ["###", ".#.", ".#.", ".#.", ".#.", ".#.", "###"],
+  "J": ["..###", "...#.", "...#.", "...#.", "#..#.", "#..#.", ".##.."],
+  "K": ["#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"],
+  "L": ["#....", "#....", "#....", "#....", "#....", "#....", "#####"],
+  "M": ["#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#"],
+  "N": ["#...#", "#...#", "##..#", "#.#.#", "#..##", "#...#", "#...#"],
+  "O": [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+  "P": ["####.", "#...#", "#...#", "####.", "#....", "#....", "#...."],
+  "Q": [".###.", "#...#", "#...#", "#...#", "#.#.#", "#..#.", ".##.#"],
+  "R": ["####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"],
+  "S": [".####", "#....", "#....", ".###.", "....#", "....#", "####."],
+  "T": ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."],
+  "U": ["#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+  "V": ["#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."],
+  "W": ["#...#", "#...#", "#...#", "#.#.#", "#.#.#", "#.#.#", ".#.#."],
+  "X": ["#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"],
+  "Y": ["#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."],
+  "Z": ["#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"],
+  "a": ["", "", ".###.", "....#", ".####", "#...#", ".####"],
+  "b": ["#....", "#....", "####.", "#...#", "#...#", "#...#", "####."],
+  "c": ["", "", ".###.", "#....", "#....", "#....", ".###."],
+  "d": ["....#", "....#", ".####", "#...#", "#...#", "#...#", ".####"],
+  "e": ["", "", ".###.", "#...#", "#####", "#....", ".###."],
+  "f": ["..##", ".#..", "####", ".#..", ".#..", ".#..", ".#.."],
+  "g": ["", "", ".####", "#...#", "#...#", "#...#", ".####", "....#", ".###."],
+  "h": ["#....", "#....", "####.", "#...#", "#...#", "#...#", "#...#"],
+  "i": ["#", "", "#", "#", "#", "#", "#"],
+  "j": ["..#", "", "..#", "..#", "..#", "..#", "..#", "#.#", ".#."],
+  "k": ["#...", "#...", "#..#", "#.#.", "##..", "#.#.", "#..#"],
+  "l": ["#.", "#.", "#.", "#.", "#.", "#.", ".#"],
+  "m": ["", "", "##.#.", "#.#.#", "#.#.#", "#.#.#", "#.#.#"],
+  "n": ["", "", "####.", "#...#", "#...#", "#...#", "#...#"],
+  "o": ["", "", ".###.", "#...#", "#...#", "#...#", ".###."],
+  "p": ["", "", "####.", "#...#", "#...#", "#...#", "####.", "#....", "#...."],
+  "q": ["", "", ".####", "#...#", "#...#", "#...#", ".####", "....#", "....#"],
+  "r": ["", "", "#.##", "##..", "#...", "#...", "#..."],
+  "s": ["", "", ".####", "#....", ".###.", "....#", "####."],
+  "t": [".#..", ".#..", "####", ".#..", ".#..", ".#..", "..##"],
+  "u": ["", "", "#...#", "#...#", "#...#", "#...#", ".####"],
+  "v": ["", "", "#...#", "#...#", "#...#", ".#.#.", "..#.."],
+  "w": ["", "", "#...#", "#...#", "#.#.#", "#.#.#", ".#.#."],
+  "x": ["", "", "#...#", ".#.#.", "..#..", ".#.#.", "#...#"],
+  "y": ["", "", "#...#", "#...#", "#...#", "#...#", ".####", "....#", ".###."],
+  "z": ["", "", "#####", "...#.", "..#..", ".#...", "#####"],
+  "0": [".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."],
+  "1": ["..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."],
+  "2": [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"],
+  "3": ["####.", "....#", "....#", ".###.", "....#", "....#", "####."],
+  "4": ["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."],
+  "5": ["#####", "#....", "####.", "....#", "....#", "#...#", ".###."],
+  "6": ["..##.", ".#...", "#....", "####.", "#...#", "#...#", ".###."],
+  "7": ["#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#..."],
+  "8": [".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."],
+  "9": [".###.", "#...#", "#...#", ".####", "....#", "...#.", ".##.."],
+  ":": ["", "", "", "#", "", "", "#"],
+  "!": ["#", "#", "#", "#", "#", "", "#"],
+  "?": [".###.", "#...#", "....#", "...#.", "..#..", "", "..#.."],
+  ".": ["", "", "", "", "", "", "#"],
+  ",": ["", "", "", "", "", "", ".#", "#."],
+  "'": ["#", "#"],
+  "-": ["", "", "", "####"],
+  "_": ["", "", "", "", "", "", "", "#####"],
+  "/": ["...#", "...#", "..#.", "..#.", ".#..", ".#..", "#..."],
+  "#": [".#.#.", ".#.#.", "#####", ".#.#.", "#####", ".#.#.", ".#.#."],
+  "@": [".###.", "#...#", "#.###", "#.#.#", "#.##.", "#....", ".###."],
+  " ": ["...", "", "", "", "", "", ""]
+};
+
+// wat er op het bord komt, regel per regel: [tekst, kleur]
+const REGELS = [
+  { icoon: "verboden",   stukken: [[REGEL, "wit"]] },
+  { icoon: "controller", stukken: [["Join code: ", "wit"], [JOIN_CODE, "geel"]] },
+  { icoon: "praat",      stukken: [["Discord:", "wit"]] },
+  { icoon: "",           stukken: [[DISCORD, "blauw"]] }
+];
+
+const zoek = new URLSearchParams(location.search);
+const inOBS = !!window.obsstudio || zoek.has("obs");
+const opnemen = zoek.has("opnemen");
+const voorbeeld = zoek.has("voorbeeld") || (location.protocol === "file:" && !inOBS && !opnemen);
+document.body.classList.toggle("voorbeeld", voorbeeld);
+
+const RAND = 5, SCHADUW = 2, PAD = 5;
+const ICOON_B = 9, ICOON_GAT = 3, REGEL_GAT = NIEUW ? 3 : 4;
+const CURSOR_B = NIEUW ? 5 : 7, CURSOR_H = 7;
+const BOVEN = KAT ? 31 : 15;   // ruimte boven het bord (tabje, katje en hartjes)
+
+const scherm = document.getElementById("scherm");
+const sctx = scherm.getContext("2d");
+const klein = document.createElement("canvas");
+const kctx = klein.getContext("2d");
+
+/* ---------- alle letters op een rij, met het moment waarop ze getypt worden ---------- */
+const tekens = [];
+REGELS.forEach((regel, r) => {
+  for (const [stuk, kleur] of regel.stukken) {
+    for (const teken of Array.from(stuk)) tekens.push({ regel: r, teken, kleur, x: 0 });
+  }
+});
+
+// typ-ritme: na een spatie of leesteken even wachten, en af en toe een tikje trager (zoals een echt mens)
+const START = 8;
+const verschijn = [];
+let tikTeller = START;
+tekens.forEach((tk, i) => {
+  verschijn.push(tikTeller);
+  const volgende = tekens[i + 1];
+  if (!volgende) return;
+  if (volgende.regel !== tk.regel) tikTeller += 10;
+  else if (tk.teken === ":" || tk.teken === "!") tikTeller += 4;
+  else if (tk.teken === " ") tikTeller += 2;
+  else tikTeller += 1 + (i % 5 === 3 ? 1 : 0);
+});
+const TYP_KLAAR = tikTeller + 1;
+const WIS_START = TYP_KLAAR + LEESTIJD * TPS;
+const WIS_SNEL = 3;   // letters per stap bij het wissen
+const LUS = WIS_START + Math.ceil(tekens.length / WIS_SNEL) + 10;
+
+function aantalZichtbaar(t) {
+  if (t >= WIS_START) return Math.max(0, tekens.length - WIS_SNEL * (t - WIS_START + 1));
+  let n = 0;
+  while (n < tekens.length && verschijn[n] <= t) n++;
+  return n;
+}
+
+/* ---------- letters omzetten naar pixels ---------- */
+const glyphs = new Map();   // teken -> { pixels: [[x, y]], stap: hoe ver de volgende letter verder staat }
+let tekstHoogte = 9, bordB = 0, bordH = 0, lijnH = 12, tabB = 0, maxRegelB = 0;
+
+function alleTekens() {
+  return new Set([...tekens.map(t => t.teken), ...Array.from(TAB)]);
+}
+
+function maakThipjeGlyphs() {
+  for (const teken of alleTekens()) {
+    const rijen = THIPJE_FONT[teken] || THIPJE_FONT[teken.toUpperCase()] || THIPJE_FONT["?"];
+    const pixels = [];
+    let breedte = 0;
+    rijen.forEach((rij, y) => {
+      breedte = Math.max(breedte, rij.length);
+      Array.from(rij).forEach((c, x) => { if (c === "#") pixels.push([x, y]); });
+    });
+    glyphs.set(teken, { pixels, stap: breedte + 1 });
+  }
+  tekstHoogte = 9;
+}
+
+// het oude arcade-lettertype (Press Start 2P), op dubbele grootte getekend en terug naar blokjes gezet
+function maakArcadeGlyphs() {
+  const G = 2;
+  const c = document.createElement("canvas");
+  c.width = 96 * G; c.height = 24 * G;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.font = (8 * G) + 'px "Press Start 2P"';
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "#fff";
+
+  function naarPixels(tekst, fx, fy) {
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.fillText(tekst, 0, 8 * G);
+    const data = ctx.getImageData(0, 0, c.width, c.height).data;
+    const pixels = [];
+    let scherp = 0;
+    for (let y = fy; y + G <= c.height; y += G) {
+      for (let x = fx; x + G <= c.width; x += G) {
+        let som = 0;
+        for (let by = 0; by < G; by++) {
+          for (let bx = 0; bx < G; bx++) som += data[((y + by) * c.width + x + bx) * 4 + 3];
+        }
+        const gemiddeld = som / (G * G);
+        if (gemiddeld < 30 || gemiddeld > 225) scherp++;
+        if (gemiddeld >= 128) pixels.push([(x - fx) / G, (y - fy) / G]);
+      }
+    }
+    return { pixels, scherp };
+  }
+
+  let fx = 0, fy = 0, beste = -1;
+  for (const sx of [0, 1]) {
+    for (const sy of [0, 1]) {
+      const { scherp } = naarPixels("mwMWN", sx, sy);
+      if (scherp > beste) { beste = scherp; fx = sx; fy = sy; }
+    }
+  }
+  let minY = 99, maxY = -1;
+  const ruw = new Map();
+  for (const teken of alleTekens()) {
+    const { pixels } = naarPixels(teken, fx, fy);
+    for (const [, y] of pixels) { minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+    ruw.set(teken, pixels);
+  }
+  if (maxY < 0) { minY = 8; maxY = 15; }
+  for (const [teken, pixels] of ruw) glyphs.set(teken, { pixels: pixels.map(([x, y]) => [x, y - minY]), stap: 8 });
+  tekstHoogte = maxY - minY + 1;
+}
+
+function tekstBreedte(tekst) {
+  return Array.from(tekst).reduce((b, t) => b + glyphs.get(t).stap, 0);
+}
+
+function maatBord() {
+  // plek van elke letter op zijn regel
+  const regelX = REGELS.map(() => 0);
+  for (const tk of tekens) {
+    tk.x = regelX[tk.regel];
+    regelX[tk.regel] += glyphs.get(tk.teken).stap;
+  }
+  maxRegelB = Math.max(...regelX);
+  lijnH = tekstHoogte + REGEL_GAT;
+  bordB = 2 + PAD + ICOON_B + ICOON_GAT + maxRegelB + CURSOR_B + 1 + PAD + 2;
+  bordH = 2 + PAD + REGELS.length * lijnH - REGEL_GAT + PAD + 2;
+  tabB = tekstBreedte(TAB) + 7;
+  klein.width = RAND + bordB + SCHADUW + RAND;
+  klein.height = BOVEN + bordH + SCHADUW + RAND;
+  if (klein.width % 2) klein.width++;     // even maten, nodig voor video
+  if (klein.height % 2) klein.height++;
+  pasGrootteAan();
+  document.getElementById("info").textContent =
+    `Beste grootte: breedte ${klein.width * SCHAAL} × hoogte ${klein.height * SCHAAL} · ruitjes = doorzichtig`;
+}
+
+// elke game-pixel wordt een heel aantal echte pixels groot: altijd scherp
+let pixelGrootte = SCHAAL;
+function pasGrootteAan() {
+  if (!opnemen && !voorbeeld) {
+    pixelGrootte = Math.max(1, Math.floor(Math.min(innerWidth / klein.width, innerHeight / klein.height)));
+  }
+  scherm.width = klein.width * pixelGrootte;
+  scherm.height = klein.height * pixelGrootte;
+}
+
+/* ---------- tekenhulpjes ---------- */
+function px(x, y, kleur) { kctx.fillStyle = kleur; kctx.fillRect(x, y, 1, 1); }
+function blok(x, y, b, h, kleur) { kctx.fillStyle = kleur; kctx.fillRect(x, y, b, h); }
+function rondBlok(x, y, b, h, kleur) {
+  blok(x + 1, y, b - 2, h, kleur);
+  blok(x, y + 1, b, h - 2, kleur);
+}
+
+// één letter tekenen: eigen lettertype met zwarte rand en twee kleuren, arcade met schaduw
+function tekenLetter(teken, x, y, kleurNaam) {
+  const g = glyphs.get(teken);
+  if (!g) return;
+  if (NIEUW) {
+    const [boven, onder] = TWEEKLEUR[kleurNaam] || [KLEUR[kleurNaam], KLEUR[kleurNaam]];
+    for (const [gx, gy] of g.pixels) {
+      px(x + gx - 1, y + gy, KLEUR.zwart); px(x + gx + 1, y + gy, KLEUR.zwart);
+      px(x + gx, y + gy - 1, KLEUR.zwart); px(x + gx, y + gy + 1, KLEUR.zwart);
+    }
+    for (const [gx, gy] of g.pixels) px(x + gx, y + gy, gy < 5 ? boven : onder);
+  } else {
+    for (const [gx, gy] of g.pixels) px(x + gx + 1, y + gy + 1, KLEUR.zwart);
+    for (const [gx, gy] of g.pixels) px(x + gx, y + gy, KLEUR[kleurNaam]);
+  }
+}
+
+// sprite uit tekst: elke letter is een kleur, "." is leeg; zwarte rand komt er vanzelf bij
+function tekenSprite(rijen, kleuren, x, y, extra = []) {
+  const vol = new Map();
+  rijen.forEach((rij, ry) => Array.from(rij).forEach((c, rx) => {
+    if (c !== ".") vol.set(rx + "," + ry, kleuren[c]);
+  }));
+  for (const [rx, ry, c] of extra) vol.set(rx + "," + ry, kleuren[c]);
+  for (const sleutel of vol.keys()) {
+    const [rx, ry] = sleutel.split(",").map(Number);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (!vol.has((rx + dx) + "," + (ry + dy))) px(x + rx + dx, y + ry + dy, KLEUR.zwart);
+    }
+  }
+  for (const [sleutel, kleur] of vol) {
+    const [rx, ry] = sleutel.split(",").map(Number);
+    px(x + rx, y + ry, kleur);
+  }
+}
+
+function ster(x, y, fase, kleur) {
+  const grootte = [0, 1, 2, 1, 0][fase];
+  px(x, y, fase === 2 ? KLEUR.wit : kleur);
+  for (let i = 1; i <= grootte; i++) {
+    px(x - i, y, kleur); px(x + i, y, kleur);
+    px(x, y - i, kleur); px(x, y + i, kleur);
+  }
+}
+
+/* ---------- icoontjes ---------- */
+const ICONEN = {
+  verboden: {
+    rijen: [".rrrrr.", "rrwwwwr", "rwrwwwr", "rwwrwwr", "rwwwrwr", "rwwwwrr", ".rrrrr."],
+    kleuren: { r: KLEUR.rood, w: KLEUR.wit }
+  },
+  controller: {
+    rijen: [".lllllll.", "lglllllrl", "ggglllrlr", "lglllllrl", "ll.....ll"],
+    kleuren: { l: KLEUR.lichtgrijs, g: KLEUR.donkergrijs, r: KLEUR.rood }
+  },
+  praat: {
+    rijen: [".bbbbbbb.", "bbbbbbbbb", "bbwbwbwbb", "bbbbbbbbb", ".bbbbbbb.", ".bb......", ".b......."],
+    kleuren: { b: KLEUR.blauw, w: KLEUR.wit }
+  }
+};
+
+/* ---------- het katje (zelfde als bij Thipje) ---------- */
+const KAT_KLEUREN = { o: KLEUR.oranje, d: KLEUR.bruin, w: KLEUR.wit, p: KLEUR.roze, e: KLEUR.zwart, r: KLEUR.rood };
+const KAT_LIJF = [
+  "o.....o", "oo...oo", "oododoo", "ooooooo", "oeoooeo", "oeopoeo",
+  "wwoooww", ".ooooo.", "oowwwoo", "oowwwoo", "oowwwoo"
+];
+const KAT_STAART = [
+  [[7, 10], [8, 10], [9, 10], [10, 9], [10, 8], [10, 7]],
+  [[7, 10], [8, 10], [9, 10], [10, 10], [11, 9], [12, 8]]
+];
+const HART_GROOT = ["rr.rr", "rwrrr", "rrrrr", ".rrr.", "..r.."];
+const HART_KLEIN = ["r.r", "rrr", ".r."];
+
+function katje(t, x, y, sprongStart) {
+  const k = t % 48;
+  const knipoog = k === 30 || k === 31 || k === 41;
+  const lijf = knipoog ? KAT_LIJF.map((rij, i) => i === 4 ? rij.replaceAll("e", "o") : rij) : KAT_LIJF;
+  const staart = KAT_STAART[Math.floor(t / 6) % 2].map(([sx, sy]) => [sx, sy, "o"]);
+  const sprong = [-1, -2, -2, -1][t - sprongStart] || 0;
+  tekenSprite(lijf, KAT_KLEUREN, x, y + sprong, staart);
+}
+
+function hartje(t, start, x, y, groot) {
+  const s = t - start;
+  if (s < 0 || s > 15) return;
+  const sprite = groot && s < 12 ? HART_GROOT : HART_KLEIN;
+  const wiebel = [0, 1, 0, -1][Math.floor(s / 3) % 4];
+  const midden = sprite === HART_KLEIN && groot ? 1 : 0;
+  tekenSprite(sprite, KAT_KLEUREN, x + wiebel + midden, y - Math.floor(s / 2));
+}
+
+/* ---------- één beeldje tekenen ---------- */
+function teken(tik) {
+  const t = ((tik % LUS) + LUS) % LUS;
+  kctx.clearRect(0, 0, klein.width, klein.height);
+  const x0 = RAND, y0 = BOVEN;
+
+  // tabje bovenaan links (het bord tekent straks over de onderkant heen)
+  const tabX = x0 + 4, tabY = y0 - 12;
+  rondBlok(tabX, tabY, tabB, 16, KLEUR.zwart);
+  rondBlok(tabX + 1, tabY + 1, tabB - 2, 14, KLEUR.rood);
+  let lx = tabX + 4;
+  for (const teken of Array.from(TAB)) {
+    tekenLetter(teken, lx, tabY + 3, "wit");
+    lx += glyphs.get(teken).stap;
+  }
+
+  // het bord
+  rondBlok(x0 + SCHADUW, y0 + SCHADUW, bordB, bordH, KLEUR.zwart);
+  rondBlok(x0, y0, bordB, bordH, KLEUR.zwart);
+  rondBlok(x0 + 1, y0 + 1, bordB - 2, bordH - 2, KLEUR.wit);
+  rondBlok(x0 + 2, y0 + 2, bordB - 4, bordH - 4, KLEUR.donkerblauw);
+
+  // glimstreep terwijl alles stil staat
+  if (t >= TYP_KLAAR && t < WIS_START) {
+    const fase = (t - TYP_KLAAR) % 72;
+    if (fase < 26) {
+      const pos = fase * 10 - 10;
+      const vx = x0 + 3, vy = y0 + 3, vb = bordB - 6, vh = bordH - 6;
+      for (let y = 0; y < vh; y++) {
+        for (let x = 0; x < vb; x++) {
+          const d = x + y - pos;
+          if (d >= 0 && d < 3) px(vx + x, vy + y, d < 1 ? KLEUR.blauw : KLEUR.lavendel);
+        }
+      }
+    }
+  }
+
+  // getypte letters + icoontjes (een icoontje verschijnt zodra zijn regel begint)
+  const tekstX = x0 + 2 + PAD + ICOON_B + ICOON_GAT;
+  const tekstY = y0 + 2 + PAD;
+  const n = aantalZichtbaar(t);
+  const regelGestart = new Set();
+  for (let i = 0; i < n; i++) {
+    const tk = tekens[i];
+    regelGestart.add(tk.regel);
+    tekenLetter(tk.teken, tekstX + tk.x, tekstY + tk.regel * lijnH, tk.kleur);
+  }
+  REGELS.forEach((regel, r) => {
+    const icoon = ICONEN[regel.icoon];
+    if (!icoon || !regelGestart.has(r)) return;
+    const ib = icoon.rijen[0].length, ih = icoon.rijen.length;
+    const ix = x0 + 2 + PAD + Math.floor((ICOON_B - ib) / 2);
+    const iy = tekstY + r * lijnH + Math.floor((7 - ih) / 2);
+    tekenSprite(icoon.rijen, icoon.kleuren, ix, iy);
+  });
+
+  // knipperend blokje (de cursor)
+  let cRegel = 0, cX = 0;
+  if (n > 0) {
+    const laatste = tekens[n - 1];
+    cRegel = laatste.regel;
+    cX = laatste.x + glyphs.get(laatste.teken).stap;
+  }
+  const bezig = (t >= START && t < TYP_KLAAR) || (t >= WIS_START && n > 0);
+  if (bezig || (t % 12) < 6) blok(tekstX + cX, tekstY + cRegel * lijnH, CURSOR_B, CURSOR_H, KLEUR.wit);
+
+  // katje: springt op als alles getypt is, en dan komen er hartjes
+  if (KAT) {
+    const katX = x0 + bordB - 16, katY = y0 - 11;
+    katje(t, katX, katY, TYP_KLAAR);
+    hartje(t, TYP_KLAAR + 3, katX + 1, katY - 9, true);
+    hartje(t, TYP_KLAAR + 7, katX + 7, katY - 7, false);
+  }
+
+  // sterretjes
+  const st = t % 48;
+  const sterren = [
+    { start: 12, x: x0 - 3,                      y: y0 + 8,          kleur: KLEUR.geel },
+    { start: 24, x: x0 + bordB + 2,              y: y0 + bordH - 6,  kleur: KLEUR.roze },
+    { start: 38, x: x0 + Math.floor(bordB / 2),  y: y0 - 3,          kleur: KLEUR.blauw }
+  ];
+  for (const s of sterren) {
+    const fase = st - s.start;
+    if (fase >= 0 && fase < 5) ster(s.x, s.y, fase, s.kleur);
+  }
+
+  sctx.imageSmoothingEnabled = false;
+  sctx.clearRect(0, 0, scherm.width, scherm.height);
+  sctx.drawImage(klein, 0, 0, scherm.width, scherm.height);
+}
+
+/* ---------- starten ---------- */
+// het eigen lettertype zit in dit bestand zelf: geen internet nodig
+const lettertypeKlaar = NIEUW
+  ? Promise.resolve()
+  : document.fonts.load('8px "Press Start 2P"').catch(() => {});
+
+lettertypeKlaar.then(() => {
+  if (NIEUW) maakThipjeGlyphs(); else maakArcadeGlyphs();
+  maatBord();
+  teken(0);
+  document.body.dataset.lus = LUS;
+  document.body.dataset.klaar = "ja";
+
+  if (opnemen) {
+    document.addEventListener("teken", e => teken(e.detail));
+    return;
+  }
+  let vorige = -1;
+  addEventListener("resize", () => { pasGrootteAan(); teken(Math.max(vorige, 0)); });
+  (function lus() {
+    const tik = Math.floor(performance.now() / 1000 * TPS);
+    if (tik !== vorige) { vorige = tik; teken(tik); }
+    requestAnimationFrame(lus);
+  })();
+});
+</script>
+</body>
+</html>
