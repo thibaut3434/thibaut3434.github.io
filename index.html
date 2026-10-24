@@ -1,0 +1,327 @@
+<!doctype html>
+<!--
+  ============================================================
+   THIPJE - pixel-naambordje (zoals in een oude game)
+  ============================================================
+   Dit bestand maakt de animatie. Je kunt het gebruiken:
+   - online als link (bv. GitHub Pages) -> TikTok LIVE Studio: Bron toevoegen -> Link
+   - in OBS: Bron + -> Browser -> Lokaal bestand
+   Beste grootte: 860 x 360 (staat ook onderaan als je het op je pc opent).
+
+   Andere naam? Verander TEKST hieronder in het script.
+  ============================================================
+-->
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thipje Pixel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  /* het bordje staat in het midden en past zich aan elk venster aan
+     (bv. een Link-bron in TikTok LIVE Studio) */
+  body { display: flex; align-items: center; justify-content: center; }
+  #scherm { display: block; image-rendering: pixelated; }
+
+  /* alleen in je gewone browser: ruitjes = doorzichtig */
+  body.voorbeeld {
+    min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    background: repeating-conic-gradient(#d9d9d9 0 25%, #f2f2f2 0 50%) 0 0 / 20px 20px;
+    font: 14px/1.4 system-ui, sans-serif;
+    color: #333;
+  }
+  body.voorbeeld #scherm { max-width: calc(100vw - 32px); height: auto; }
+  #info { display: none; background: #fff; padding: 6px 12px; border-radius: 6px; }
+  body.voorbeeld #info { display: block; }
+</style>
+</head>
+<body>
+<canvas id="scherm"></canvas>
+<div id="info"></div>
+
+<script>
+/* ============================================================
+   INSTELLINGEN
+   ============================================================ */
+const TEKST = "Thipje";
+const SCHAAL = 10;   // 1 game-pixel = 10 echte pixels
+const KAT = true;    // pixel-katje bovenop het bordje (false = geen katje)
+
+/* ============================================================
+   Vanaf hier hoef je niets te veranderen
+   ============================================================ */
+const TPS = 12;      // animatie-stappen per seconde (lekker schokkerig, zoals vroeger)
+const LUS = 48;      // stappen per rondje = 4 seconden
+
+// PICO-8 kleurenpalet (16 kleuren van de fantasy console PICO-8)
+const KLEUR = {
+  zwart: "#000000", donkerblauw: "#1D2B53", donkerpaars: "#7E2553",
+  donkergrijs: "#5F574F", lichtgrijs: "#C2C3C7", wit: "#FFF1E8",
+  rood: "#FF004D", oranje: "#FFA300", geel: "#FFEC27",
+  blauw: "#29ADFF", lavendel: "#83769C", roze: "#FF77A8", bruin: "#AB5236"
+};
+
+const RAND = 6;            // ruimte rond het bordje voor sterretjes
+const BOVEN = KAT ? 31 : RAND + 1;   // ruimte boven het bordje (voor het katje en zijn hartjes)
+const SCHADUW = 2;
+const BINNEN_LINKS = 5, STIP = 4, TUSSEN = 5, BINNEN_RECHTS = 6;
+const BINNEN_BOVEN = 5, BINNEN_ONDER = 5;
+
+const scherm = document.getElementById("scherm");
+const sctx = scherm.getContext("2d");
+const klein = document.createElement("canvas");
+const kctx = klein.getContext("2d");
+
+let letters = [];          // per letter: lijst met pixels [x, y]
+let tekstHoogte = 8, bordB = 0, bordH = 0;
+
+// elke letter één keer tekenen en omzetten naar harde pixels (geen wazige randjes)
+function maakLetters() {
+  const c = document.createElement("canvas");
+  c.width = 16; c.height = 24;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.font = '8px "Press Start 2P"';
+  ctx.textBaseline = "top";
+  let minY = 99, maxY = -1;
+  const ruw = Array.from(TEKST).map(letter => {
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.fillStyle = "#fff";
+    ctx.fillText(letter, 0, 8);
+    const data = ctx.getImageData(0, 0, c.width, c.height).data;
+    const pixels = [];
+    for (let y = 0; y < c.height; y++) {
+      for (let x = 0; x < c.width; x++) {
+        if (data[(y * c.width + x) * 4 + 3] >= 128) {
+          pixels.push([x, y]);
+          minY = Math.min(minY, y);
+          maxY = Math.max(maxY, y);
+        }
+      }
+    }
+    return pixels;
+  });
+  if (maxY < 0) { minY = 8; maxY = 15; }
+  // alles naar boven schuiven zodat de hoogste pixel op rij 0 staat
+  letters = ruw.map(pixels => pixels.map(([x, y]) => [x, y - minY]));
+  tekstHoogte = maxY - minY + 1;
+}
+
+function maatBordje() {
+  const tekstB = TEKST.length * 8;
+  bordB = 2 + BINNEN_LINKS + STIP + TUSSEN + tekstB + BINNEN_RECHTS + 2;
+  bordH = 2 + BINNEN_BOVEN + tekstHoogte + BINNEN_ONDER + 2;
+  klein.width = RAND + bordB + SCHADUW + RAND;
+  klein.height = BOVEN + bordH + SCHADUW + RAND;
+  pasGrootteAan();
+  document.getElementById("info").textContent =
+    `Beste grootte: breedte ${klein.width * SCHAAL} × hoogte ${klein.height * SCHAAL} · ruitjes = doorzichtig`;
+}
+
+// Live: elke game-pixel wordt een heel aantal echte pixels groot,
+// zo blijven alle blokjes even groot en scherp, hoe groot het venster ook is.
+let pixelGrootte = SCHAAL;
+function pasGrootteAan() {
+  if (!opnemen && !voorbeeld) {
+    pixelGrootte = Math.max(1, Math.floor(Math.min(innerWidth / klein.width, innerHeight / klein.height)));
+  }
+  scherm.width = klein.width * pixelGrootte;
+  scherm.height = klein.height * pixelGrootte;
+}
+
+/* ---------- kleine tekenhulpjes (alles in hele pixels) ---------- */
+function px(x, y, kleur) { kctx.fillStyle = kleur; kctx.fillRect(x, y, 1, 1); }
+function blok(x, y, b, h, kleur) { kctx.fillStyle = kleur; kctx.fillRect(x, y, b, h); }
+
+// rechthoek met afgeknipte hoekjes = "rond" in pixelstijl
+function rondBlok(x, y, b, h, kleur) {
+  blok(x + 1, y, b - 2, h, kleur);
+  blok(x, y + 1, b, h - 2, kleur);
+}
+
+// Teken een sprite uit tekst: elke letter is een kleur, "." is leeg.
+// De zwarte rand eromheen komt er vanzelf bij.
+function tekenSprite(rijen, kleuren, x, y, extra = []) {
+  const vol = new Map();
+  rijen.forEach((rij, ry) => Array.from(rij).forEach((c, rx) => {
+    if (c !== ".") vol.set(rx + "," + ry, kleuren[c]);
+  }));
+  for (const [rx, ry, c] of extra) vol.set(rx + "," + ry, kleuren[c]);
+  for (const sleutel of vol.keys()) {
+    const [rx, ry] = sleutel.split(",").map(Number);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (!vol.has((rx + dx) + "," + (ry + dy))) px(x + rx + dx, y + ry + dy, KLEUR.zwart);
+    }
+  }
+  for (const [sleutel, kleur] of vol) {
+    const [rx, ry] = sleutel.split(",").map(Number);
+    px(x + rx, y + ry, kleur);
+  }
+}
+
+/* ---------- het katje ---------- */
+const KAT_KLEUREN = { o: KLEUR.oranje, d: KLEUR.bruin, w: KLEUR.wit, p: KLEUR.roze, e: KLEUR.zwart, r: KLEUR.rood };
+const KAT_LIJF = [
+  "o.....o",
+  "oo...oo",
+  "oododoo",
+  "ooooooo",
+  "oeoooeo",
+  "oeopoeo",
+  "wwoooww",
+  ".ooooo.",
+  "oowwwoo",
+  "oowwwoo",
+  "oowwwoo"
+];
+const KAT_STAART = [
+  [[7, 10], [8, 10], [9, 10], [10, 9], [10, 8], [10, 7]],  // staart omhoog
+  [[7, 10], [8, 10], [9, 10], [10, 10], [11, 9], [12, 8]]  // staart opzij
+];
+const HART_GROOT = ["rr.rr", "rwrrr", "rrrrr", ".rrr.", "..r.."];
+const HART_KLEIN = ["r.r", "rrr", ".r."];
+
+function katje(t, x, y) {
+  const knipoog = t === 30 || t === 31 || t === 41;
+  const lijf = knipoog ? KAT_LIJF.map((rij, i) => i === 4 ? rij.replaceAll("e", "o") : rij) : KAT_LIJF;
+  const staart = KAT_STAART[Math.floor(t / 6) % 2].map(([sx, sy]) => [sx, sy, "o"]);
+  // als de letter-golf aankomt, maakt het katje een sprongetje
+  const sprong = [-1, -2, -2, -1][t - 18] || 0;
+  tekenSprite(lijf, KAT_KLEUREN, x, y + sprong, staart);
+}
+
+function hartje(t, start, x, y, groot) {
+  const s = t - start;
+  if (s < 0 || s > 15) return;
+  const sprite = groot && s < 12 ? HART_GROOT : HART_KLEIN;
+  const wiebel = [0, 1, 0, -1][Math.floor(s / 3) % 4];
+  const midden = sprite === HART_KLEIN && groot ? 1 : 0;
+  tekenSprite(sprite, KAT_KLEUREN, x + wiebel + midden, y - Math.floor(s / 2));
+}
+
+function ster(x, y, fase, kleur) {
+  // fase 0..4: puntje, plusje, groot plusje, plusje, puntje
+  const grootte = [0, 1, 2, 1, 0][fase];
+  px(x, y, fase === 2 ? KLEUR.wit : kleur);
+  for (let i = 1; i <= grootte; i++) {
+    px(x - i, y, kleur); px(x + i, y, kleur);
+    px(x, y - i, kleur); px(x, y + i, kleur);
+  }
+}
+
+/* ---------- één beeldje tekenen ---------- */
+function teken(tik) {
+  const t = ((tik % LUS) + LUS) % LUS;
+  kctx.clearRect(0, 0, klein.width, klein.height);
+
+  const wip = (t % 24) < 12 ? 0 : -1;   // bordje gaat rustig op en neer
+  const x0 = RAND, y0 = BOVEN + wip;
+
+  // schaduw + rand + vulling
+  rondBlok(x0 + SCHADUW, y0 + SCHADUW, bordB, bordH, KLEUR.zwart);
+  rondBlok(x0, y0, bordB, bordH, KLEUR.zwart);
+  rondBlok(x0 + 1, y0 + 1, bordB - 2, bordH - 2, KLEUR.wit);
+  rondBlok(x0 + 2, y0 + 2, bordB - 4, bordH - 4, KLEUR.donkerblauw);
+
+  // glimstreep die schuin over het bordje schuift
+  const glimStart = 28, glimSnelheid = 6;
+  if (t >= glimStart) {
+    const pos = (t - glimStart) * glimSnelheid - 10;
+    const vx = x0 + 3, vy = y0 + 3, vb = bordB - 6, vh = bordH - 6;
+    for (let y = 0; y < vh; y++) {
+      for (let x = 0; x < vb; x++) {
+        const d = x + y - pos;
+        if (d >= 0 && d < 3) px(vx + x, vy + y, d < 1 ? KLEUR.blauw : KLEUR.lavendel);
+      }
+    }
+  }
+
+  // het stipje: knippert rood, met een pixel-golfje als het aangaat
+  const stipX = x0 + 2 + BINNEN_LINKS;
+  const stipY = y0 + 2 + BINNEN_BOVEN + Math.floor((tekstHoogte - STIP) / 2);
+  const stipT = t % 12;
+  const aan = stipT < 8;
+  rondBlok(stipX, stipY, STIP, STIP, aan ? KLEUR.rood : KLEUR.donkerpaars);
+  if (aan) px(stipX + 1, stipY + 1, KLEUR.wit);
+  if (stipT === 0 || stipT === 1) {
+    const r = stipT === 0 ? 2 : 3;
+    const kleur = stipT === 0 ? KLEUR.rood : KLEUR.donkerpaars;
+    const rx = stipX - r, ry = stipY - r, rb = STIP + r * 2;
+    for (let i = 1; i < rb - 1; i++) {
+      px(rx + i, ry, kleur); px(rx + i, ry + rb - 1, kleur);
+      px(rx, ry + i, kleur); px(rx + rb - 1, ry + i, kleur);
+    }
+  }
+
+  // de letters: met schaduw, en af en toe een golf die erdoor huppelt
+  const tekstX = stipX + STIP + TUSSEN;
+  const tekstY = y0 + 2 + BINNEN_BOVEN;
+  const sprong = [-1, -2, -2, -1];
+  letters.forEach((pixels, i) => {
+    const s = t - (4 + i * 2);
+    const omhoog = s >= 0 && s < sprong.length ? sprong[s] : 0;
+    const kleur = omhoog ? KLEUR.geel : KLEUR.wit;
+    const lx = tekstX + i * 8, ly = tekstY + omhoog;
+    for (const [x, y] of pixels) px(lx + x + 1, ly + y + 1, KLEUR.zwart);
+    for (const [x, y] of pixels) px(lx + x, ly + y, kleur);
+  });
+
+  // het katje zit rechts bovenop het bordje; na zijn sprongetje stijgen er hartjes op
+  if (KAT) {
+    const katX = x0 + bordB - 16, katY = y0 - 11;
+    katje(t, katX, katY);
+    hartje(t, 21, katX + 1, katY - 9, true);
+    hartje(t, 25, katX + 7, katY - 7, false);
+  }
+
+  // sterretjes rond het bordje
+  const sterren = [
+    { start: 12, x: x0 - 3,                         y: y0 + 2,          kleur: KLEUR.geel },
+    { start: 24, x: x0 + bordB + 2,                 y: y0 + bordH - 4,  kleur: KLEUR.roze },
+    { start: 38, x: KAT ? x0 + 16 : x0 + bordB - 12, y: y0 - 3,          kleur: KLEUR.blauw }
+  ];
+  for (const s of sterren) {
+    const fase = t - s.start;
+    if (fase >= 0 && fase < 5) ster(s.x, s.y, fase, s.kleur);
+  }
+
+  // klein -> groot, zonder wazig te maken
+  sctx.imageSmoothingEnabled = false;
+  sctx.clearRect(0, 0, scherm.width, scherm.height);
+  sctx.drawImage(klein, 0, 0, scherm.width, scherm.height);
+}
+
+/* ---------- starten ---------- */
+// Ruitjes-voorbeeld alleen als je het bestand op je eigen pc opent.
+// Online (via de link) en in OBS is alles doorzichtig.
+const zoek = new URLSearchParams(location.search);
+const inOBS = !!window.obsstudio || zoek.has("obs");
+const opnemen = zoek.has("opnemen");
+const voorbeeld = zoek.has("voorbeeld") || (location.protocol === "file:" && !inOBS && !opnemen);
+document.body.classList.toggle("voorbeeld", voorbeeld);
+
+document.fonts.load('8px "Press Start 2P"').catch(() => {}).then(() => {
+  maakLetters();
+  maatBordje();
+  teken(0);
+  document.body.dataset.klaar = "ja";
+
+  if (opnemen) {
+    // het opname-script vraagt zelf elk beeldje op
+    document.addEventListener("teken", e => teken(e.detail));
+    return;
+  }
+  let vorige = -1;
+  addEventListener("resize", () => { pasGrootteAan(); teken(Math.max(vorige, 0)); });
+  (function lus() {
+    const tik = Math.floor(performance.now() / 1000 * TPS);
+    if (tik !== vorige) { vorige = tik; teken(tik); }
+    requestAnimationFrame(lus);
+  })();
+});
+</script>
+</body>
+</html>
