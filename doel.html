@@ -1,0 +1,561 @@
+<!doctype html>
+<!--
+  ============================================================
+   VOLGERS-DOEL - pixel-balk die vol loopt tot je doel (giveaway!)
+  ============================================================
+   ECHTE VOLGERS: laat TikFinity Desktop openstaan terwijl je live bent.
+   Elke nieuwe volger komt er dan vanzelf bij (+1, met zijn naam).
+   Het stipje in het tabje is groen als TikFinity verbonden is.
+
+   Je aantal volgers bij de start van je live zet je zo:
+   1. Achter de link:  .../doel.html?volgers=734
+   2. Of verander VOLGERS hieronder bij INSTELLINGEN.
+   Testen zonder live: zet ?test achter de link (dan komen er nep-volgers).
+
+   Gebruiken:
+   - online als link (bv. GitHub Pages) -> TikTok LIVE Studio: Bron toevoegen -> Link
+   - in OBS: Bron + -> Browser -> Lokaal bestand
+  ============================================================
+-->
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volgers Doel</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  #scherm { display: block; image-rendering: pixelated; }
+
+  /* alleen als je het bestand op je eigen pc opent: ruitjes = doorzichtig */
+  body.voorbeeld {
+    min-height: 100vh; height: auto;
+    flex-direction: column; gap: 16px;
+    background: repeating-conic-gradient(#d9d9d9 0 25%, #f2f2f2 0 50%) 0 0 / 20px 20px;
+    font: 14px/1.4 system-ui, sans-serif;
+    color: #333;
+  }
+  body.voorbeeld #scherm { max-width: calc(100vw - 32px); height: auto; }
+  #info { display: none; background: #fff; padding: 6px 12px; border-radius: 6px; }
+  body.voorbeeld #info { display: block; }
+</style>
+</head>
+<body>
+<canvas id="scherm"></canvas>
+<div id="info"></div>
+
+<script>
+/* ============================================================
+   INSTELLINGEN  -  hier mag je alles veranderen!
+   ============================================================ */
+let VOLGERS = 734;            // hoeveel volgers je hebt als je live gaat
+let DOEL    = 1000;           // je doel
+const PRIJS = "GIVEAWAY";     // wat er gebeurt als je het doel haalt
+const TAB   = "DOEL";         // woordje op het tabje bovenaan
+const KAT   = true;           // het katje van Thipje erbij (false = geen katje)
+const TIKFINITY_POORT = 21213;   // poort van de TikFinity Event API (standaard 21213)
+
+/* ============================================================
+   Vanaf hier hoef je niets te veranderen
+   ============================================================ */
+const zoek = new URLSearchParams(location.search);
+// getallen achter de link gaan voor: doel.html?volgers=734&doel=1000
+if (zoek.has("volgers")) VOLGERS = Math.max(0, parseInt(zoek.get("volgers"), 10) || 0);
+if (zoek.has("doel")) DOEL = Math.max(1, parseInt(zoek.get("doel"), 10) || DOEL);
+const TEST = zoek.has("test");
+const POORT = parseInt(zoek.get("poort"), 10) || TIKFINITY_POORT;
+
+// live-gegevens: nieuwe volgers tijdens deze live
+let extra = 0;                 // nieuwe volgers sinds de start
+let verbonden = false;         // is TikFinity verbonden?
+let volgTik = -999;            // wanneer de laatste nieuwe volger binnenkwam
+let volgNaam = "";
+let vorigeWaarde = VOLGERS;    // voor het schuiven van oud naar nieuw getal
+let laatsteTik = 0;
+function totaal() { return VOLGERS + extra; }
+function gehaald() { return totaal() >= DOEL; }
+
+const TPS = 12;
+const SCHAAL = 6;
+const LUS = 360;   // 30 seconden: dan loopt de balk opnieuw vol
+
+const KLEUR = {
+  zwart: "#000000", donkerblauw: "#1D2B53", donkerpaars: "#7E2553",
+  donkergrijs: "#5F574F", lichtgrijs: "#C2C3C7", wit: "#FFF1E8",
+  rood: "#FF004D", oranje: "#FFA300", geel: "#FFEC27",
+  blauw: "#29ADFF", lavendel: "#83769C", roze: "#FF77A8", bruin: "#AB5236",
+  groen: "#00E436"
+};
+const TWEEKLEUR = {
+  wit: [KLEUR.wit, KLEUR.lichtgrijs],
+  geel: [KLEUR.geel, KLEUR.oranje],
+  blauw: [KLEUR.blauw, KLEUR.lavendel],
+  roze: [KLEUR.roze, KLEUR.rood]
+};
+const REGENBOOG = [KLEUR.rood, KLEUR.oranje, KLEUR.geel, KLEUR.blauw, KLEUR.lavendel, KLEUR.roze];
+
+/* ---------- THIPJE-FONT (zelfde zelfgemaakte lettertype als het infobord) ---------- */
+const THIPJE_FONT = {
+  "A": [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+  "B": ["####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."],
+  "C": [".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."],
+  "D": ["####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."],
+  "E": ["#####", "#....", "#....", "####.", "#....", "#....", "#####"],
+  "F": ["#####", "#....", "#....", "####.", "#....", "#....", "#...."],
+  "G": [".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".###."],
+  "H": ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+  "I": ["###", ".#.", ".#.", ".#.", ".#.", ".#.", "###"],
+  "J": ["..###", "...#.", "...#.", "...#.", "#..#.", "#..#.", ".##.."],
+  "K": ["#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"],
+  "L": ["#....", "#....", "#....", "#....", "#....", "#....", "#####"],
+  "M": ["#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#"],
+  "N": ["#...#", "#...#", "##..#", "#.#.#", "#..##", "#...#", "#...#"],
+  "O": [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+  "P": ["####.", "#...#", "#...#", "####.", "#....", "#....", "#...."],
+  "Q": [".###.", "#...#", "#...#", "#...#", "#.#.#", "#..#.", ".##.#"],
+  "R": ["####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"],
+  "S": [".####", "#....", "#....", ".###.", "....#", "....#", "####."],
+  "T": ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."],
+  "U": ["#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+  "V": ["#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."],
+  "W": ["#...#", "#...#", "#...#", "#.#.#", "#.#.#", "#.#.#", ".#.#."],
+  "X": ["#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"],
+  "Y": ["#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."],
+  "Z": ["#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"],
+  "a": ["", "", ".###.", "....#", ".####", "#...#", ".####"],
+  "b": ["#....", "#....", "####.", "#...#", "#...#", "#...#", "####."],
+  "c": ["", "", ".###.", "#....", "#....", "#....", ".###."],
+  "d": ["....#", "....#", ".####", "#...#", "#...#", "#...#", ".####"],
+  "e": ["", "", ".###.", "#...#", "#####", "#....", ".###."],
+  "f": ["..##", ".#..", "####", ".#..", ".#..", ".#..", ".#.."],
+  "g": ["", "", ".####", "#...#", "#...#", "#...#", ".####", "....#", ".###."],
+  "h": ["#....", "#....", "####.", "#...#", "#...#", "#...#", "#...#"],
+  "i": ["#", "", "#", "#", "#", "#", "#"],
+  "j": ["..#", "", "..#", "..#", "..#", "..#", "..#", "#.#", ".#."],
+  "k": ["#...", "#...", "#..#", "#.#.", "##..", "#.#.", "#..#"],
+  "l": ["#.", "#.", "#.", "#.", "#.", "#.", ".#"],
+  "m": ["", "", "##.#.", "#.#.#", "#.#.#", "#.#.#", "#.#.#"],
+  "n": ["", "", "####.", "#...#", "#...#", "#...#", "#...#"],
+  "o": ["", "", ".###.", "#...#", "#...#", "#...#", ".###."],
+  "p": ["", "", "####.", "#...#", "#...#", "#...#", "####.", "#....", "#...."],
+  "q": ["", "", ".####", "#...#", "#...#", "#...#", ".####", "....#", "....#"],
+  "r": ["", "", "#.##", "##..", "#...", "#...", "#..."],
+  "s": ["", "", ".####", "#....", ".###.", "....#", "####."],
+  "t": [".#..", ".#..", "####", ".#..", ".#..", ".#..", "..##"],
+  "u": ["", "", "#...#", "#...#", "#...#", "#...#", ".####"],
+  "v": ["", "", "#...#", "#...#", "#...#", ".#.#.", "..#.."],
+  "w": ["", "", "#...#", "#...#", "#.#.#", "#.#.#", ".#.#."],
+  "x": ["", "", "#...#", ".#.#.", "..#..", ".#.#.", "#...#"],
+  "y": ["", "", "#...#", "#...#", "#...#", "#...#", ".####", "....#", ".###."],
+  "z": ["", "", "#####", "...#.", "..#..", ".#...", "#####"],
+  "0": [".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."],
+  "1": ["..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."],
+  "2": [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"],
+  "3": ["####.", "....#", "....#", ".###.", "....#", "....#", "####."],
+  "4": ["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."],
+  "5": ["#####", "#....", "####.", "....#", "....#", "#...#", ".###."],
+  "6": ["..##.", ".#...", "#....", "####.", "#...#", "#...#", ".###."],
+  "7": ["#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#..."],
+  "8": [".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."],
+  "9": [".###.", "#...#", "#...#", ".####", "....#", "...#.", ".##.."],
+  ":": ["", "", "", "#", "", "", "#"],
+  "!": ["#", "#", "#", "#", "#", "", "#"],
+  "?": [".###.", "#...#", "....#", "...#.", "..#..", "", "..#.."],
+  ".": ["", "", "", "", "", "", "#"],
+  ",": ["", "", "", "", "", "", ".#", "#."],
+  "'": ["#", "#"],
+  "-": ["", "", "", "####"],
+  "_": ["", "", "", "", "", "", "", "####"],
+  "@": [".###.", "#...#", "#.###", "#.#.#", "#.##.", "#....", ".###."],
+  "/": ["...#", "...#", "..#.", "..#.", ".#..", ".#..", "#..."],
+  "%":["##...", "##..#", "...#.", "..#..", ".#...", "#..##", "...##"],
+  "=": ["", "", "#####", "", "#####"],
+  "+": ["", "..#..", "..#..", "#####", "..#..", "..#.."],
+  " ": ["...", "", "", "", "", "", ""]
+};
+
+const voorbeeld = zoek.has("voorbeeld") || (location.protocol === "file:" && !window.obsstudio && !zoek.has("obs") && !zoek.has("opnemen"));
+const opnemen = zoek.has("opnemen");
+document.body.classList.toggle("voorbeeld", voorbeeld);
+
+const RAND = 5, SCHADUW = 2, PAD = 5;
+const LIJN = 9;                 // hoogte van een regel tekst (met staartjes)
+const BALK_H = 9;
+const CADEAU_B = 9;
+const BOVEN = KAT ? 31 : 15;
+
+const scherm = document.getElementById("scherm");
+const sctx = scherm.getContext("2d");
+const klein = document.createElement("canvas");
+const kctx = klein.getContext("2d");
+
+/* ---------- letters ---------- */
+const glyphs = new Map();
+function glyph(teken) {
+  if (!glyphs.has(teken)) {
+    const rijen = THIPJE_FONT[teken] || THIPJE_FONT[teken.toUpperCase()] || THIPJE_FONT["?"];
+    const pixels = [];
+    let breedte = 0;
+    rijen.forEach((rij, y) => {
+      breedte = Math.max(breedte, rij.length);
+      Array.from(rij).forEach((c, x) => { if (c === "#") pixels.push([x, y]); });
+    });
+    glyphs.set(teken, { pixels, stap: breedte + 1 });
+  }
+  return glyphs.get(teken);
+}
+function tekstBreedte(tekst) {
+  return Array.from(tekst).reduce((b, t) => b + glyph(t).stap, 0) - 1;
+}
+
+/* ---------- tekenhulpjes ---------- */
+function px(x, y, kleur) { kctx.fillStyle = kleur; kctx.fillRect(x, y, 1, 1); }
+function blok(x, y, b, h, kleur) { kctx.fillStyle = kleur; kctx.fillRect(x, y, b, h); }
+function rondBlok(x, y, b, h, kleur) {
+  blok(x + 1, y, b - 2, h, kleur);
+  blok(x, y + 1, b, h - 2, kleur);
+}
+
+// tekst met zwarte rand en twee kleuren (licht boven, donkerder onder)
+function tekenTekst(tekst, x, y, kleurNaam) {
+  const [boven, onder] = TWEEKLEUR[kleurNaam];
+  for (const teken of Array.from(tekst)) {
+    const g = glyph(teken);
+    for (const [gx, gy] of g.pixels) {
+      px(x + gx - 1, y + gy, KLEUR.zwart); px(x + gx + 1, y + gy, KLEUR.zwart);
+      px(x + gx, y + gy - 1, KLEUR.zwart); px(x + gx, y + gy + 1, KLEUR.zwart);
+    }
+    for (const [gx, gy] of g.pixels) px(x + gx, y + gy, gy < 5 ? boven : onder);
+    x += g.stap;
+  }
+  return x;
+}
+
+function tekenSprite(rijen, kleuren, x, y, extra = []) {
+  const vol = new Map();
+  rijen.forEach((rij, ry) => Array.from(rij).forEach((c, rx) => {
+    if (c !== ".") vol.set(rx + "," + ry, kleuren[c]);
+  }));
+  for (const [rx, ry, c] of extra) vol.set(rx + "," + ry, kleuren[c]);
+  for (const sleutel of vol.keys()) {
+    const [rx, ry] = sleutel.split(",").map(Number);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (!vol.has((rx + dx) + "," + (ry + dy))) px(x + rx + dx, y + ry + dy, KLEUR.zwart);
+    }
+  }
+  for (const [sleutel, kleur] of vol) {
+    const [rx, ry] = sleutel.split(",").map(Number);
+    px(x + rx, y + ry, kleur);
+  }
+}
+
+function ster(x, y, fase, kleur) {
+  const grootte = [0, 1, 2, 1, 0][fase];
+  px(x, y, fase === 2 ? KLEUR.wit : kleur);
+  for (let i = 1; i <= grootte; i++) {
+    px(x - i, y, kleur); px(x + i, y, kleur);
+    px(x, y - i, kleur); px(x, y + i, kleur);
+  }
+}
+
+/* ---------- cadeautje (de giveaway!) ---------- */
+const CADEAU = {
+  rijen: [".yy...yy.", "...y.y...", "rrrryrrrr", "rrrryrrrr", ".pppyppp.", ".pppyppp.", ".pppyppp.", ".pppyppp."],
+  kleuren: { y: KLEUR.geel, r: KLEUR.rood, p: KLEUR.roze }
+};
+
+/* ---------- het katje (zelfde als bij Thipje) ---------- */
+const KAT_KLEUREN = { o: KLEUR.oranje, d: KLEUR.bruin, w: KLEUR.wit, p: KLEUR.roze, e: KLEUR.zwart, r: KLEUR.rood };
+const KAT_LIJF = [
+  "o.....o", "oo...oo", "oododoo", "ooooooo", "oeoooeo", "oeopoeo",
+  "wwoooww", ".ooooo.", "oowwwoo", "oowwwoo", "oowwwoo"
+];
+const KAT_STAART = [
+  [[7, 10], [8, 10], [9, 10], [10, 9], [10, 8], [10, 7]],
+  [[7, 10], [8, 10], [9, 10], [10, 10], [11, 9], [12, 8]]
+];
+const HART_GROOT = ["rr.rr", "rwrrr", "rrrrr", ".rrr.", "..r.."];
+const HART_KLEIN = ["r.r", "rrr", ".r."];
+
+function sprongje(nu, start) { return [-1, -2, -2, -1][nu - start] || 0; }
+
+function katje(t, x, y, sprong) {
+  const k = t % 48;
+  const knipoog = k === 30 || k === 31 || k === 41;
+  const lijf = knipoog ? KAT_LIJF.map((rij, i) => i === 4 ? rij.replaceAll("e", "o") : rij) : KAT_LIJF;
+  const staart = KAT_STAART[Math.floor(t / 6) % 2].map(([sx, sy]) => [sx, sy, "o"]);
+  tekenSprite(lijf, KAT_KLEUREN, x, y + sprong, staart);
+}
+
+function hartje(t, start, x, y, groot) {
+  const s = t - start;
+  if (s < 0 || s > 15) return;
+  const sprite = groot && s < 12 ? HART_GROOT : HART_KLEIN;
+  const wiebel = [0, 1, 0, -1][Math.floor(s / 3) % 4];
+  const midden = sprite === HART_KLEIN && groot ? 1 : 0;
+  tekenSprite(sprite, KAT_KLEUREN, x + wiebel + midden, y - Math.floor(s / 2));
+}
+
+/* ---------- maten ---------- */
+const VUL_START = 6, VUL_DUUR = 24;     // de balk loopt in 2 seconden vol
+const VUL_KLAAR = VUL_START + VUL_DUUR;
+let bordB = 0, bordH = 0, balkB = 0, tabB = 0, binnenB = 0;
+
+function regelOnder(isGehaald) {
+  return isGehaald ? ["DOEL GEHAALD! ", PRIJS + "!"] : [`${DOEL} volgers = `, PRIJS + "!"];
+}
+
+function maatBord() {
+  const bovenB = tekstBreedte(`${Math.max(VOLGERS, DOEL)} / ${DOEL} volgers`) + 10 + tekstBreedte("100%");
+  const onderB = Math.max(...[false, true].map(g => {
+    const [a, b] = regelOnder(g);
+    return tekstBreedte(a) + 1 + tekstBreedte(b);
+  }));
+  binnenB = Math.max(bovenB, onderB, 120);
+  balkB = binnenB - CADEAU_B - 4;
+  bordB = 2 + PAD + binnenB + PAD + 2;
+  bordH = 2 + PAD + LIJN + 3 + BALK_H + 4 + LIJN + PAD + 1 + 2;
+  tabB = tekstBreedte(TAB) + 8 + 5;   // + ruimte voor het verbindings-stipje
+  klein.width = RAND + bordB + SCHADUW + RAND + 2;
+  klein.height = BOVEN + bordH + SCHADUW + RAND;
+  if (klein.width % 2) klein.width++;
+  if (klein.height % 2) klein.height++;
+  pasGrootteAan();
+  document.getElementById("info").textContent =
+    `Beste grootte: breedte ${klein.width * SCHAAL} × hoogte ${klein.height * SCHAAL} · volgers: ${VOLGERS} / ${DOEL} · ruitjes = doorzichtig`;
+}
+
+let pixelGrootte = SCHAAL;
+function pasGrootteAan() {
+  if (!opnemen && !voorbeeld) {
+    pixelGrootte = Math.max(1, Math.floor(Math.min(innerWidth / klein.width, innerHeight / klein.height)));
+  }
+  scherm.width = klein.width * pixelGrootte;
+  scherm.height = klein.height * pixelGrootte;
+}
+
+/* ---------- één beeldje tekenen ---------- */
+function teken(tik) {
+  laatsteTik = tik;
+  const t = ((tik % LUS) + LUS) % LUS;
+  kctx.clearRect(0, 0, klein.width, klein.height);
+  const x0 = RAND, y0 = BOVEN;
+
+  // getal dat optelt van 0 tot je aantal volgers; bij een nieuwe volger schuift het van oud naar nieuw
+  const s = Math.min(1, Math.max(0, (t - VUL_START) / VUL_DUUR));
+  const zacht = 1 - Math.pow(1 - s, 3);
+  const sindsVolg = tik - volgTik;
+  let nu;
+  if (s < 1) nu = Math.round(totaal() * zacht);
+  else if (sindsVolg >= 0 && sindsVolg < 6) nu = Math.round(vorigeWaarde + (totaal() - vorigeWaarde) * (sindsVolg + 1) / 6);
+  else nu = totaal();
+  const deel = Math.min(1, nu / DOEL);
+  const procent = Math.min(100, Math.floor(nu / DOEL * 100));
+  const nieuweVolgerTonen = sindsVolg >= 0 && sindsVolg < 36;
+
+  // tabje, met een stipje: groen = TikFinity verbonden
+  const tabX = x0 + 4, tabY = y0 - 12;
+  rondBlok(tabX, tabY, tabB, 16, KLEUR.zwart);
+  rondBlok(tabX + 1, tabY + 1, tabB - 2, 14, KLEUR.rood);
+  const tabEind = tekenTekst(TAB, tabX + 4, tabY + 3, "wit");
+  const stipKleur = verbonden ? ((t % 24) < 18 ? KLEUR.groen : KLEUR.donkerpaars) : KLEUR.donkergrijs;
+  tekenSprite(["xx", "xx"], { x: stipKleur }, tabEind + 1, tabY + 6);
+
+  // het bord
+  rondBlok(x0 + SCHADUW, y0 + SCHADUW, bordB, bordH, KLEUR.zwart);
+  rondBlok(x0, y0, bordB, bordH, KLEUR.zwart);
+  rondBlok(x0 + 1, y0 + 1, bordB - 2, bordH - 2, KLEUR.wit);
+  rondBlok(x0 + 2, y0 + 2, bordB - 4, bordH - 4, KLEUR.donkerblauw);
+
+  // glimstreep af en toe
+  const glimFase = (t - VUL_KLAAR) % 96;
+  if (t >= VUL_KLAAR && glimFase < 22) {
+    const pos = glimFase * 10 - 10;
+    const vx = x0 + 3, vy = y0 + 3, vb = bordB - 6, vh = bordH - 6;
+    for (let y = 0; y < vh; y++) {
+      for (let x = 0; x < vb; x++) {
+        const d = x + y - pos;
+        if (d >= 0 && d < 3) px(vx + x, vy + y, d < 1 ? KLEUR.blauw : KLEUR.lavendel);
+      }
+    }
+  }
+
+  const binnenX = x0 + 2 + PAD;
+  const regelA = y0 + 2 + PAD;
+  const balkY = regelA + LIJN + 3;
+  const regelC = balkY + BALK_H + 4;
+
+  const feest = s >= 1 && nu >= DOEL;
+
+  // bovenste regel: 734 / 1000 volgers ............ 73%   (het getal flitst roze bij een nieuwe volger)
+  const getalKleur = sindsVolg >= 0 && sindsVolg < 12 && (sindsVolg % 4) < 2 ? "roze" : "geel";
+  let x = tekenTekst(String(nu), binnenX, regelA, getalKleur);
+  tekenTekst(` / ${DOEL} volgers`, x, regelA, "wit");
+  const procTekst = procent + "%";
+  tekenTekst(procTekst, x0 + bordB - 2 - PAD - tekstBreedte(procTekst), regelA, feest ? "geel" : "wit");
+
+  // de balk
+  rondBlok(binnenX, balkY, balkB, BALK_H, KLEUR.zwart);
+  blok(binnenX + 1, balkY + 1, balkB - 2, BALK_H - 2, KLEUR.donkerpaars);
+  const vulB = Math.round((balkB - 2) * deel);
+  for (let bx = 0; bx < vulB; bx++) {
+    for (let by = 0; by < BALK_H - 2; by++) {
+      let kleur;
+      if (feest) kleur = REGENBOOG[Math.floor((bx + by + t) / 3) % REGENBOOG.length];
+      else if (by === 0) kleur = KLEUR.wit;
+      else if (by === BALK_H - 3) kleur = KLEUR.rood;
+      else kleur = ((bx - by + t) % 6 + 6) % 6 < 3 ? KLEUR.roze : KLEUR.rood;   // schuivende streepjes
+      px(binnenX + 1 + bx, balkY + 1 + by, kleur);
+    }
+  }
+  // lichtje aan de rand van de vulling
+  if (vulB > 0 && vulB < balkB - 2 && (t % 12) < 6) {
+    blok(binnenX + vulB, balkY + 1, 1, BALK_H - 2, KLEUR.wit);
+  }
+
+  // cadeautje aan het einde: wiebelt af en toe, springt als het doel gehaald is
+  const cadeauX = binnenX + balkB + 4;
+  let cadeauY = balkY;
+  let wiebel = 0;
+  if (feest) cadeauY -= [0, 1, 2, 1][Math.floor(t / 2) % 4];
+  else if (t % 36 < 6 && t >= VUL_KLAAR) wiebel = [1, -1, 1, -1, 1, 0][t % 36];
+  tekenSprite(CADEAU.rijen, CADEAU.kleuren, cadeauX + wiebel, cadeauY, []);
+
+  // onderste regel: 1000 volgers = GIVEAWAY!   of even:  +1 naam volgt je!
+  if (nieuweVolgerTonen) {
+    x = tekenTekst("+1 ", binnenX, regelC, "geel");
+    let naam = volgNaam || "nieuwe volger";
+    while (naam.length > 1 && x + tekstBreedte(naam + " volgt!") > binnenX + binnenB) naam = naam.slice(0, -1);
+    x = tekenTekst(naam, x, regelC, "roze");
+    tekenTekst(" volgt!", x, regelC, "wit");
+  } else {
+    const [a, b] = regelOnder(feest);
+    x = tekenTekst(a, binnenX, regelC, "wit");
+    tekenTekst(b, x + 1, regelC, "roze");
+  }
+
+  // katje rijdt mee op de plek waar de balk is, en springt bij elke nieuwe volger
+  if (KAT) {
+    const minX = tabX + tabB + 2, maxX = x0 + bordB - 16;
+    const katX = Math.max(minX, Math.min(maxX, binnenX + vulB - 4));
+    const katY = y0 - 11;
+    katje(t, katX, katY, sprongje(t, VUL_KLAAR) || sprongje(tik, volgTik));
+    hartje(t, VUL_KLAAR + 3, katX + 1, katY - 9, true);
+    hartje(t, VUL_KLAAR + 7, katX + 7, katY - 7, false);
+    hartje(tik, volgTik + 3, katX + 1, katY - 9, true);
+    hartje(tik, volgTik + 7, katX + 7, katY - 7, false);
+  }
+
+  // sterretjes (en confetti als het doel gehaald is)
+  const st = t % 48;
+  const sterren = [
+    { start: 12, x: x0 - 3,          y: y0 + 8,          kleur: KLEUR.geel },
+    { start: 24, x: x0 + bordB + 2,  y: y0 + bordH - 6,  kleur: KLEUR.roze },
+    { start: 38, x: x0 + bordB + 2,  y: y0 + 6,          kleur: KLEUR.blauw }
+  ];
+  for (const ster_ of sterren) {
+    const fase = st - ster_.start;
+    if (fase >= 0 && fase < 5) ster(ster_.x, ster_.y, fase, ster_.kleur);
+  }
+  if (feest) {
+    for (let i = 0; i < 14; i++) {
+      const cx = x0 + 2 + ((i * 37 + 11) % (bordB - 4));
+      const cy = (Math.floor(t / 2) + i * 7) % (BOVEN + bordH);
+      if (cy < y0 - 1 || cy > y0 + bordH) px(cx, cy, REGENBOOG[i % REGENBOOG.length]);
+    }
+  }
+
+  sctx.imageSmoothingEnabled = false;
+  sctx.clearRect(0, 0, scherm.width, scherm.height);
+  sctx.drawImage(klein, 0, 0, scherm.width, scherm.height);
+}
+
+/* ---------- echte volgers via TikFinity ---------- */
+function huidigeTik() {
+  return opnemen ? laatsteTik : Math.floor(performance.now() / 1000 * TPS);
+}
+
+// nieuwe volgers van deze live onthouden, ook als de pagina even herlaadt (bv. bij een andere scène)
+const BEWAAR_SLEUTEL = `thipje-doel-${VOLGERS}-${DOEL}`;
+function bewaar() {
+  if (TEST || opnemen) return;
+  try { localStorage.setItem(BEWAAR_SLEUTEL, JSON.stringify({ extra, tijd: Date.now() })); } catch (e) {}
+}
+function laad() {
+  if (TEST || opnemen) return;
+  try {
+    const d = JSON.parse(localStorage.getItem(BEWAAR_SLEUTEL) || "null");
+    if (d && Date.now() - d.tijd < 12 * 3600 * 1000) extra = Math.max(0, d.extra | 0);
+  } catch (e) {}
+}
+
+function nieuweVolger(naam) {
+  vorigeWaarde = totaal();
+  extra++;
+  volgTik = huidigeTik();
+  volgNaam = String(naam || "").replace(/^@/, "").slice(0, 24);
+  document.body.dataset.volgers = totaal();
+  bewaar();
+}
+
+// hetzelfde bericht nooit twee keer tellen
+const gezien = [];
+function alGezien(id) {
+  if (!id) return false;
+  if (gezien.includes(id)) return true;
+  gezien.push(id);
+  if (gezien.length > 300) gezien.shift();
+  return false;
+}
+
+function verbindMetTikFinity() {
+  let ws;
+  try {
+    ws = new WebSocket(`ws://127.0.0.1:${POORT}/`);
+  } catch (e) {
+    setTimeout(verbindMetTikFinity, 5000);
+    return;
+  }
+  ws.onopen = () => { verbonden = true; document.body.dataset.verbonden = "ja"; };
+  ws.onclose = () => { verbonden = false; document.body.dataset.verbonden = "nee"; setTimeout(verbindMetTikFinity, 5000); };
+  ws.onmessage = e => {
+    let bericht;
+    try { bericht = JSON.parse(e.data); } catch (fout) { return; }
+    if (!bericht) return;
+    const d = bericht.data || {};
+    // een volg-bericht heet "follow"; soms komt hetzelfde ook als "social" (met hetzelfde msgId, dus nooit dubbel)
+    const isVolg = bericht.event === "follow" ||
+      (bericht.event === "social" && /follow/i.test(String(d.displayType || "") + String(d.label || "")));
+    if (!isVolg || alGezien(d.msgId)) return;
+    nieuweVolger(d.uniqueId || d.nickname);
+  };
+}
+
+/* ---------- starten (alles zit in dit bestand: geen internet nodig) ---------- */
+laad();
+maatBord();
+teken(0);
+document.body.dataset.lus = LUS;
+document.body.dataset.klaar = "ja";
+
+if (opnemen) {
+  document.addEventListener("teken", e => teken(e.detail));
+  document.addEventListener("volger", e => nieuweVolger(e.detail));
+} else {
+  verbindMetTikFinity();
+  if (TEST) {
+    const namen = ["kattenfan_12", "pixel.pro", "minecraftjoost", "lisa_xd", "gamer_tom"];
+    let i = 0;
+    setInterval(() => nieuweVolger(namen[i++ % namen.length]), 4000);
+  }
+  let vorige = -1;
+  addEventListener("resize", () => { pasGrootteAan(); teken(Math.max(vorige, 0)); });
+  (function lus() {
+    const tik = Math.floor(performance.now() / 1000 * TPS);
+    if (tik !== vorige) { vorige = tik; teken(tik); }
+    requestAnimationFrame(lus);
+  })();
+}
+</script>
+</body>
+</html>
